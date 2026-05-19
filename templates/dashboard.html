@@ -232,65 +232,64 @@
             }
 
             const projectName = nameInput.value.trim();
-            const filesArray = Array.from(files);
 
             statusEl.classList.remove('hidden', 'text-red-500', 'text-green-500');
             statusEl.classList.add('text-primary');
+            statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Đang tải lên ${files.length} tệp...`;
+
+            const formData = new FormData();
+            formData.append('project_name', projectName);
 
             if (isDirectory) {
-                // Chunked folder upload algorithm for large directories
-                const CHUNK_SIZE = 25; // Upload 25 files per request batch
-                const totalFiles = filesArray.length;
-                let uploadedCount = 0;
+                // Thuật toán chia để trị (Divide and Conquer): Chia nhỏ danh sách tệp lớn thành các phần nhỏ (batches) để tải lên
+                const BATCH_SIZE = 25; // Mỗi lượt gửi tối đa 25 tệp tin để tránh quá tải payload server
+                const chunks = [];
+                for (let i = 0; i < files.length; i += BATCH_SIZE) {
+                    chunks.push(files.slice(i, i + BATCH_SIZE));
+                }
+
+                let totalSaved = 0;
+                let absolutePath = '';
+                let success = true;
 
                 try {
-                    for (let i = 0; i < totalFiles; i += CHUNK_SIZE) {
-                        const chunk = filesArray.slice(i, i + CHUNK_SIZE);
-                        const formData = new FormData();
-                        formData.append('project_name', projectName);
+                    for (let index = 0; index < chunks.length; index++) {
+                        const chunk = chunks[index];
+                        statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> [Phần ${index + 1}/${chunks.length}] Đang gửi ${chunk.length} tệp...`;
 
+                        const chunkFormData = new FormData();
+                        chunkFormData.append('project_name', projectName);
                         for (let j = 0; j < chunk.length; j++) {
-                            formData.append('files', chunk[j]);
+                            chunkFormData.append('files', chunk[j]);
                         }
-
-                        // Update detailed progress UI with percentages
-                        const progressPercent = Math.round((uploadedCount / totalFiles) * 100);
-                        statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Đang tải lên: ${uploadedCount}/${totalFiles} tệp (${progressPercent}%)`;
 
                         const response = await fetch('/api/upload-folder', {
                             method: 'POST',
-                            body: formData
+                            body: chunkFormData
                         });
-                        
-                        if (!response.ok) {
-                            throw new Error(`HTTP Error ${response.status} at chunk ${Math.floor(i/CHUNK_SIZE) + 1}`);
-                        }
-
                         const result = await response.json();
                         if (result.status === 'success') {
-                            uploadedCount += chunk.length;
-                            inputEl.value = result.absolute_path;
+                            totalSaved += result.count;
+                            absolutePath = result.absolute_path;
                         } else {
-                            throw new Error(result.error || 'Tải lên thất bại');
+                            success = false;
+                            throw new Error(result.error || `Tải lên phần ${index + 1} thất bại`);
                         }
                     }
 
-                    // Success state after all chunks are uploaded
-                    statusEl.classList.remove('text-primary');
-                    statusEl.classList.add('text-green-500');
-                    statusEl.innerHTML = `<i class="fa-solid fa-circle-check mr-1"></i> Đã tải lên thành công thư mục ảnh! (${totalFiles} tệp)`;
+                    if (success) {
+                        inputEl.value = absolutePath;
+                        statusEl.classList.remove('text-primary');
+                        statusEl.classList.add('text-green-500');
+                        statusEl.innerHTML = `<i class="fa-solid fa-circle-check mr-1"></i> Tải lên thành công! Tổng cộng ${totalSaved} tệp.`;
+                    }
                 } catch (err) {
                     statusEl.classList.remove('text-primary');
                     statusEl.classList.add('text-red-500');
                     statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark mr-1"></i> Lỗi: ${err.message}`;
                 }
             } else {
-                // Single file upload for classes.txt
-                const formData = new FormData();
-                formData.append('project_name', projectName);
-                formData.append('file', filesArray[0]);
-
-                statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Đang tải lên file classes.txt...`;
+                formData.append('file', files[0]);
 
                 try {
                     const response = await fetch('/api/upload-file', {
