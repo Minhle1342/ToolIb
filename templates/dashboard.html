@@ -137,6 +137,41 @@
         }
     });
 
+    // Recursively parse dropped items (files and folders)
+    async function getFilesFromDroppedItems(items) {
+        const files = [];
+        
+        async function traverseDirectory(entry) {
+            if (entry.isFile) {
+                const file = await new Promise((resolve) => entry.file(resolve));
+                files.push(file);
+            } else if (entry.isDirectory) {
+                const dirReader = entry.createReader();
+                const readEntriesBatch = () => new Promise((resolve, reject) => {
+                    dirReader.readEntries(resolve, reject);
+                });
+                
+                let entries = await readEntriesBatch();
+                while (entries.length > 0) {
+                    for (const subEntry of entries) {
+                        await traverseDirectory(subEntry);
+                    }
+                    entries = await readEntriesBatch();
+                }
+            }
+        }
+        
+        for (const item of items) {
+            if (item.kind === 'file') {
+                const entry = item.webkitGetAsEntry();
+                if (entry) {
+                    await traverseDirectory(entry);
+                }
+            }
+        }
+        return files;
+    }
+
     // Helper for drag & drop file upload and directory creation
     function setupDropzone(dropzoneId, inputElId, fileInputId, statusId, isDirectory) {
         const dropzone = document.getElementById(dropzoneId);
@@ -171,8 +206,13 @@
         dropzone.addEventListener('click', () => fileInput.click());
 
         // Handle drop event
-        dropzone.addEventListener('drop', e => {
-            const files = e.dataTransfer.files;
+        dropzone.addEventListener('drop', async e => {
+            let files = [];
+            if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+                files = await getFilesFromDroppedItems(e.dataTransfer.items);
+            } else {
+                files = Array.from(e.dataTransfer.files);
+            }
             handleFiles(files);
         });
 
