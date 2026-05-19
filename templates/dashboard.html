@@ -137,7 +137,7 @@
         }
     });
 
-    // Recursively parse dropped items (files and folders)
+    // Recursively parse dropped items (files and folders) with parallel processing for ultra-fast performance
     async function getFilesFromDroppedItems(items) {
         const files = [];
         
@@ -153,22 +153,24 @@
                 
                 let entries = await readEntriesBatch();
                 while (entries.length > 0) {
-                    for (const subEntry of entries) {
-                        await traverseDirectory(subEntry);
-                    }
+                    // Chạy song song duyệt các thư mục con để tối ưu tốc độ cho thư mục nhiều file (>500 file)
+                    await Promise.all(entries.map(subEntry => traverseDirectory(subEntry)));
                     entries = await readEntriesBatch();
                 }
             }
         }
         
-        for (const item of items) {
-            if (item.kind === 'file') {
+        // Chạy song song tất cả các item gốc được kéo thả vào
+        const itemPromises = Array.from(items)
+            .filter(item => item.kind === 'file')
+            .map(async item => {
                 const entry = item.webkitGetAsEntry();
                 if (entry) {
                     await traverseDirectory(entry);
                 }
-            }
-        }
+            });
+            
+        await Promise.all(itemPromises);
         return files;
     }
 
@@ -233,19 +235,33 @@
 
             const projectName = nameInput.value.trim();
 
+            // Lọc các tệp tin hợp lệ trên client trước để tránh gửi dữ liệu rác/quá lớn lên server
+            const allowedExtensions = ['.jpg', '.jpeg', '.png', '.bmp', '.txt'];
+            const validFiles = Array.from(files).filter(file => {
+                const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+                return allowedExtensions.includes(ext);
+            });
+
+            if (validFiles.length === 0) {
+                statusEl.classList.remove('hidden', 'text-primary', 'text-green-500');
+                statusEl.classList.add('text-red-500');
+                statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark mr-1"></i> Không tìm thấy ảnh hoặc file nhãn .txt hợp lệ trong thư mục!`;
+                return;
+            }
+
             statusEl.classList.remove('hidden', 'text-red-500', 'text-green-500');
             statusEl.classList.add('text-primary');
-            statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Đang tải lên ${files.length} tệp...`;
+            statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Đang tải lên ${validFiles.length} tệp...`;
 
             const formData = new FormData();
             formData.append('project_name', projectName);
 
             if (isDirectory) {
-                // Thuật toán chia để trị (Divide and Conquer): Chia nhỏ danh sách tệp lớn thành các phần nhỏ (batches) để tải lên
-                const BATCH_SIZE = 25; // Mỗi lượt gửi tối đa 25 tệp tin để tránh quá tải payload server
+                // Chia để trị (Divide and Conquer): chia nhỏ hơn nữa (BATCH_SIZE = 15) giúp tải ổn định với số lượng file > 500
+                const BATCH_SIZE = 15; 
                 const chunks = [];
-                for (let i = 0; i < files.length; i += BATCH_SIZE) {
-                    chunks.push(files.slice(i, i + BATCH_SIZE));
+                for (let i = 0; i < validFiles.length; i += BATCH_SIZE) {
+                    chunks.push(validFiles.slice(i, i + BATCH_SIZE));
                 }
 
                 let totalSaved = 0;
@@ -255,25 +271,42 @@
                 try {
                     for (let index = 0; index < chunks.length; index++) {
                         const chunk = chunks[index];
-                        statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> [Phần ${index + 1}/${chunks.length}] Đang gửi ${chunk.length} tệp...`;
+                        
+                        // Cơ chế thử lại tự động (Automatic Retry) 3 lần nếu có sự cố mạng/quá tải server
+                        let retryCount = 3;
+                        let successChunk = false;
+                        
+                        while (retryCount > 0 && !successChunk) {
+                            try {
+                                statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> [Phần ${index + 1}/${chunks.length}] Đang gửi ${chunk.length} tệp... ${retryCount < 3 ? `(Thử lại lượt ${3 - retryCount})` : ''}`;
 
-                        const chunkFormData = new FormData();
-                        chunkFormData.append('project_name', projectName);
-                        for (let j = 0; j < chunk.length; j++) {
-                            chunkFormData.append('files', chunk[j]);
-                        }
+                                const chunkFormData = new FormData();
+                                chunkFormData.append('project_name', projectName);
+                                for (let j = 0; j < chunk.length; j++) {
+                                    chunkFormData.append('files', chunk[j]);
+                                }
 
-                        const response = await fetch('/api/upload-folder', {
-                            method: 'POST',
-                            body: chunkFormData
-                        });
-                        const result = await response.json();
-                        if (result.status === 'success') {
-                            totalSaved += result.count;
-                            absolutePath = result.absolute_path;
-                        } else {
-                            success = false;
-                            throw new Error(result.error || `Tải lên phần ${index + 1} thất bại`);
+                                const response = await fetch('/api/upload-folder', {
+                                    method: 'POST',
+                                    body: chunkFormData
+                                });
+                                const result = await response.json();
+                                if (result.status === 'success') {
+                                    totalSaved += result.count;
+                                    absolutePath = result.absolute_path;
+                                    successChunk = true;
+                                } else {
+                                    throw new Error(result.error || `Tải lên phần ${index + 1} thất bại`);
+                                }
+                            } catch (err) {
+                                retryCount--;
+                                if (retryCount === 0) {
+                                    success = false;
+                                    throw err;
+                                }
+                                // Chờ 1 giây trước khi thử lại (delay)
+                                await new Promise(resolve => setTimeout(resolve, 1000));
+                            }
                         }
                     }
 
