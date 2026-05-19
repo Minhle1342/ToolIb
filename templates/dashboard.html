@@ -232,40 +232,65 @@
             }
 
             const projectName = nameInput.value.trim();
+            const filesArray = Array.from(files);
 
             statusEl.classList.remove('hidden', 'text-red-500', 'text-green-500');
             statusEl.classList.add('text-primary');
-            statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Đang tải lên ${files.length} tệp...`;
-
-            const formData = new FormData();
-            formData.append('project_name', projectName);
 
             if (isDirectory) {
-                for (let i = 0; i < files.length; i++) {
-                    formData.append('files', files[i]);
-                }
+                // Chunked folder upload algorithm for large directories
+                const CHUNK_SIZE = 25; // Upload 25 files per request batch
+                const totalFiles = filesArray.length;
+                let uploadedCount = 0;
 
                 try {
-                    const response = await fetch('/api/upload-folder', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const result = await response.json();
-                    if (result.status === 'success') {
-                        inputEl.value = result.absolute_path;
-                        statusEl.classList.remove('text-primary');
-                        statusEl.classList.add('text-green-500');
-                        statusEl.innerHTML = `<i class="fa-solid fa-circle-check mr-1"></i> Đã tải lên thư mục ảnh! (${result.count} file)`;
-                    } else {
-                        throw new Error(result.error || 'Tải lên thất bại');
+                    for (let i = 0; i < totalFiles; i += CHUNK_SIZE) {
+                        const chunk = filesArray.slice(i, i + CHUNK_SIZE);
+                        const formData = new FormData();
+                        formData.append('project_name', projectName);
+
+                        for (let j = 0; j < chunk.length; j++) {
+                            formData.append('files', chunk[j]);
+                        }
+
+                        // Update detailed progress UI with percentages
+                        const progressPercent = Math.round((uploadedCount / totalFiles) * 100);
+                        statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Đang tải lên: ${uploadedCount}/${totalFiles} tệp (${progressPercent}%)`;
+
+                        const response = await fetch('/api/upload-folder', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        if (!response.ok) {
+                            throw new Error(`HTTP Error ${response.status} at chunk ${Math.floor(i/CHUNK_SIZE) + 1}`);
+                        }
+
+                        const result = await response.json();
+                        if (result.status === 'success') {
+                            uploadedCount += chunk.length;
+                            inputEl.value = result.absolute_path;
+                        } else {
+                            throw new Error(result.error || 'Tải lên thất bại');
+                        }
                     }
+
+                    // Success state after all chunks are uploaded
+                    statusEl.classList.remove('text-primary');
+                    statusEl.classList.add('text-green-500');
+                    statusEl.innerHTML = `<i class="fa-solid fa-circle-check mr-1"></i> Đã tải lên thành công thư mục ảnh! (${totalFiles} tệp)`;
                 } catch (err) {
                     statusEl.classList.remove('text-primary');
                     statusEl.classList.add('text-red-500');
                     statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark mr-1"></i> Lỗi: ${err.message}`;
                 }
             } else {
-                formData.append('file', files[0]);
+                // Single file upload for classes.txt
+                const formData = new FormData();
+                formData.append('project_name', projectName);
+                formData.append('file', filesArray[0]);
+
+                statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Đang tải lên file classes.txt...`;
 
                 try {
                     const response = await fetch('/api/upload-file', {
