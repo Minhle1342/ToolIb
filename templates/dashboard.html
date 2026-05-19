@@ -278,7 +278,21 @@
                         
                         while (retryCount > 0 && !successChunk) {
                             try {
-                                statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> [Phần ${index + 1}/${chunks.length}] Đang gửi ${chunk.length} tệp... ${retryCount < 3 ? `(Thử lại lượt ${3 - retryCount})` : ''}`;
+                                const percent = Math.round((index / chunks.length) * 100);
+                                statusEl.innerHTML = `
+                                    <div class="flex flex-col w-64 mx-auto text-left">
+                                        <div class="flex items-center text-primary text-xs font-semibold mb-1.5 truncate">
+                                            <i class="fa-solid fa-spinner fa-spin mr-1.5"></i> [Phần ${index + 1}/${chunks.length}] Đang gửi ${chunk.length} tệp... ${retryCount < 3 ? `(Thử lại ${3 - retryCount})` : ''}
+                                        </div>
+                                        <div class="w-full bg-border rounded-full h-2 overflow-hidden shadow-inner">
+                                            <div class="bg-primary h-full transition-all duration-300 rounded-full" style="width: ${percent}%"></div>
+                                        </div>
+                                        <div class="flex justify-between items-center text-[10px] text-content-muted mt-1.5">
+                                            <span>Đang tải lên ${percent}%</span>
+                                            <span>${totalSaved} tệp</span>
+                                        </div>
+                                    </div>
+                                `;
 
                                 const chunkFormData = new FormData();
                                 chunkFormData.append('project_name', projectName);
@@ -314,12 +328,38 @@
                         inputEl.value = absolutePath;
                         statusEl.classList.remove('text-primary');
                         statusEl.classList.add('text-green-500');
-                        statusEl.innerHTML = `<i class="fa-solid fa-circle-check mr-1"></i> Tải lên thành công! Tổng cộng ${totalSaved} tệp.`;
+                        statusEl.innerHTML = `
+                            <div class="flex flex-col w-64 mx-auto text-left">
+                                <div class="flex items-center text-green-500 text-xs font-semibold mb-1.5">
+                                    <i class="fa-solid fa-circle-check mr-1.5"></i> Tải lên thành công!
+                                </div>
+                                <div class="w-full bg-border rounded-full h-2 overflow-hidden shadow-inner">
+                                    <div class="bg-green-500 h-full w-full rounded-full"></div>
+                                </div>
+                                <div class="flex justify-between items-center text-[10px] text-green-500 mt-1.5 font-medium">
+                                    <span>Đã hoàn thành 100%</span>
+                                    <span>Tổng: ${totalSaved} tệp</span>
+                                </div>
+                            </div>
+                        `;
                     }
                 } catch (err) {
                     statusEl.classList.remove('text-primary');
                     statusEl.classList.add('text-red-500');
-                    statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark mr-1"></i> Lỗi: ${err.message}`;
+                    statusEl.innerHTML = `
+                        <div class="flex flex-col w-64 mx-auto text-left">
+                            <div class="flex items-center text-red-500 text-xs font-semibold mb-1.5">
+                                <i class="fa-solid fa-circle-xmark mr-1.5"></i> Lỗi tải lên!
+                            </div>
+                            <div class="w-full bg-border rounded-full h-2 overflow-hidden shadow-inner">
+                                <div class="bg-red-500 h-full w-full rounded-full"></div>
+                            </div>
+                            <div class="flex justify-between items-center text-[10px] text-red-500 mt-1.5 font-medium">
+                                <span>Thất bại</span>
+                                <span>Lỗi: ${err.message}</span>
+                            </div>
+                        </div>
+                    `;
                 }
             } else {
                 formData.append('file', files[0]);
