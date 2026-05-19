@@ -23,7 +23,7 @@
         <form id="createProjectForm" class="space-y-4">
             <div class="space-y-1">
                 <label class="block text-sm font-medium text-content-muted">Project Name</label>
-                <input type="text" name="name"
+                <input type="text" name="name" id="create_name"
                     class="w-full bg-surface border border-border rounded px-3 py-2 text-content focus:outline-none focus:border-primary transition-colors"
                     required>
             </div>
@@ -68,6 +68,59 @@
     </div>
 </div>
 
+<!-- Edit Project Modal -->
+<div class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4" id="editProjectModal">
+    <div class="bg-panel rounded-lg shadow-xl w-full max-w-md p-6 border border-border">
+        <h2 class="text-xl font-bold text-content mb-6">Edit Project</h2>
+        <form id="editProjectForm" class="space-y-4">
+            <input type="hidden" name="id" id="edit_project_id">
+            <div class="space-y-1">
+                <label class="block text-sm font-medium text-content-muted">Project Name</label>
+                <input type="text" name="name" id="edit_name"
+                    class="w-full bg-surface border border-border rounded px-3 py-2 text-content focus:outline-none focus:border-primary transition-colors"
+                    required>
+            </div>
+            <div class="space-y-1">
+                <label class="block text-sm font-medium text-content-muted">Images Folder Path (Absolute)</label>
+                <div class="space-y-2">
+                    <input type="text" name="root_path" id="edit_root_path_input"
+                        class="w-full bg-surface border border-border rounded px-3 py-2 text-content focus:outline-none focus:border-primary transition-colors"
+                        required placeholder="C:\Path\To\Images">
+                    <div id="edit_images_dropzone" class="border-2 border-dashed border-border rounded-lg p-5 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all bg-surface/30 group">
+                        <i class="fa-solid fa-cloud-arrow-up text-primary text-3xl mb-2 group-hover:scale-110 transition-transform"></i>
+                        <p class="text-xs text-content font-medium">Kéo & thả thư mục ảnh mới vào đây, hoặc click để chọn</p>
+                        <p class="text-[10px] text-content-muted mt-1 font-normal">Hỗ trợ JPG, PNG, BMP, JPEG (và file nhãn .txt tương ứng nếu có)</p>
+                        <input type="file" id="edit_images_file_input" class="hidden" webkitdirectory directory multiple>
+                        <div id="edit_images_upload_status" class="hidden text-xs mt-3 font-semibold px-3 py-1.5 rounded bg-surface/50 border border-border inline-block"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="space-y-1">
+                <label class="block text-sm font-medium text-content-muted">Classes File Path (Absolute)</label>
+                <div class="space-y-2">
+                    <input type="text" name="classes_path" id="edit_classes_path_input"
+                        class="w-full bg-surface border border-border rounded px-3 py-2 text-content focus:outline-none focus:border-primary transition-colors"
+                        required placeholder="C:\Path\To\classes.txt">
+                    <div id="edit_classes_dropzone" class="border-2 border-dashed border-border rounded-lg p-5 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all bg-surface/30 group">
+                        <i class="fa-solid fa-file-lines text-primary text-3xl mb-2 group-hover:scale-110 transition-transform"></i>
+                        <p class="text-xs text-content font-medium">Kéo & thả file classes.txt mới vào đây, hoặc click để chọn</p>
+                        <p class="text-[10px] text-content-muted mt-1 font-normal">Mỗi dòng chứa tên một class</p>
+                        <input type="file" id="edit_classes_file_input" class="hidden" accept=".txt">
+                        <div id="edit_classes_upload_status" class="hidden text-xs mt-3 font-semibold px-3 py-1.5 rounded bg-surface/50 border border-border inline-block"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-8">
+                <button type="button"
+                    class="px-4 py-2 text-sm text-content-muted hover:text-content hover:bg-surface rounded transition-colors"
+                    onclick="closeModal('editProjectModal')">Cancel</button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm bg-primary hover:bg-blue-600 text-content-inv rounded transition-colors">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
     function openModal(id) {
         document.getElementById(id).classList.remove('hidden');
@@ -77,8 +130,11 @@
         document.getElementById(id).classList.add('hidden');
     }
 
+    let allProjects = [];
+
     async function loadProjects() {
         const projects = await API.getProjects();
+        allProjects = projects;
         const container = document.getElementById('projectList');
 
         container.innerHTML = projects.map(p => `
@@ -91,6 +147,9 @@
                     <a href="/project/${p.id}" class="flex-1 bg-primary hover:bg-blue-600 text-content-inv text-center py-2 rounded text-sm transition-colors">
                         Open Workspace
                     </a>
+                    <button onclick="editProject(${p.id})" class="bg-surface hover:bg-border text-content px-3 rounded transition-colors" title="Edit Project">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
                     <button onclick="scanProject(${p.id})" class="bg-surface hover:bg-border text-content px-3 rounded transition-colors" title="Scan Folder">
                         <i class="fa-solid fa-rotate"></i>
                     </button>
@@ -100,6 +159,22 @@
                 </div>
             </div >
         `).join('');
+    }
+
+    function editProject(id) {
+        const p = allProjects.find(item => item.id === id);
+        if (!p) return;
+        
+        document.getElementById('edit_project_id').value = p.id;
+        document.getElementById('edit_name').value = p.name;
+        document.getElementById('edit_root_path_input').value = p.root_path;
+        document.getElementById('edit_classes_path_input').value = p.classes_path;
+        
+        // Reset drag & drop statuses
+        document.getElementById('edit_images_upload_status').classList.add('hidden');
+        document.getElementById('edit_classes_upload_status').classList.add('hidden');
+        
+        openModal('editProjectModal');
     }
 
     async function deleteProject(id) {
@@ -134,6 +209,25 @@
             e.target.reset();
             document.getElementById('images_upload_status').classList.add('hidden');
             document.getElementById('classes_upload_status').classList.add('hidden');
+        }
+    });
+
+    document.getElementById('editProjectForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const data = Object.fromEntries(formData.entries());
+        const id = data.id;
+        delete data.id;
+
+        const res = await API.updateProject(id, data);
+        if (res.error) {
+            alert('Error: ' + res.error);
+        } else {
+            closeModal('editProjectModal');
+            loadProjects();
+            e.target.reset();
+            document.getElementById('edit_images_upload_status').classList.add('hidden');
+            document.getElementById('edit_classes_upload_status').classList.add('hidden');
         }
     });
 
@@ -175,7 +269,7 @@
     }
 
     // Helper for drag & drop file upload and directory creation
-    function setupDropzone(dropzoneId, inputElId, fileInputId, statusId, isDirectory) {
+    function setupDropzone(dropzoneId, inputElId, fileInputId, statusId, isDirectory, nameInputId) {
         const dropzone = document.getElementById(dropzoneId);
         const fileInput = document.getElementById(fileInputId);
         const inputEl = document.getElementById(inputElId);
@@ -226,7 +320,7 @@
         async function handleFiles(files) {
             if (!files || files.length === 0) return;
 
-            const nameInput = document.querySelector('#createProjectForm input[name="name"]');
+            const nameInput = document.getElementById(nameInputId);
             if (!nameInput.value.trim()) {
                 alert('Vui lòng nhập "Project Name" ở đầu form trước khi kéo thả tải lên để hệ thống phân loại thư mục lưu trữ!');
                 nameInput.focus();
@@ -388,8 +482,10 @@
     }
 
     // Set up drag and drop zones
-    setupDropzone('images_dropzone', 'root_path_input', 'images_file_input', 'images_upload_status', true);
-    setupDropzone('classes_dropzone', 'classes_path_input', 'classes_file_input', 'classes_upload_status', false);
+    setupDropzone('images_dropzone', 'root_path_input', 'images_file_input', 'images_upload_status', true, 'create_name');
+    setupDropzone('classes_dropzone', 'classes_path_input', 'classes_file_input', 'classes_upload_status', false, 'create_name');
+    setupDropzone('edit_images_dropzone', 'edit_root_path_input', 'edit_images_file_input', 'edit_images_upload_status', true, 'edit_name');
+    setupDropzone('edit_classes_dropzone', 'edit_classes_path_input', 'edit_classes_file_input', 'edit_classes_upload_status', false, 'edit_name');
 
     // Initial Load
     loadProjects();

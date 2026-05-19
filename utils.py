@@ -244,3 +244,24 @@ def get_classes(project):
         with open(project.classes_path, 'r') as f:
             return [line.strip() for line in f.readlines() if line.strip()]
     return []
+
+def get_image_classes(image):
+    """
+    Reads the unique class IDs present in the image's label file.
+    """
+    project = Project.query.get(image.project_id)
+    label_file = os.path.join(project.root_path, os.path.splitext(image.filename)[0] + '.txt')
+    classes = set()
+    if os.path.exists(label_file):
+        try:
+            with open(label_file, 'r') as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if parts:
+                        try:
+                            classes.add(int(parts[0]))
+                        except ValueError:
+                            pass
+        except Exception:
+            pass
+    return sorted(list(classes))

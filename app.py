@@ -1,4 +1,5 @@
 import os
+# pyrefly: ignore [missing-import]
 from flask import Flask, render_template
 from models import db
 from routes import api_bp

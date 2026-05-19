@@ -375,6 +375,19 @@ class Editor {
         this.canvas.on('selection:updated', (e) => this.onSelect(e));
         this.canvas.on('selection:cleared', (e) => this.onDeselect(e));
 
+        // Double-click to highlight all boxes of the same class
+        this.canvas.on('mouse:dblclick', (opt) => {
+            if (opt.target && opt.target.type === 'rect') {
+                const targetClassId = opt.target.classId;
+                if (typeof targetClassId !== 'undefined' && targetClassId !== null) {
+                    this.triggerGlowForClasses([targetClassId]);
+                    if (typeof selectClass === 'function') {
+                        selectClass(targetClassId);
+                    }
+                }
+            }
+        });
+
         // Real-time update for magnifier
         this.canvas.on('object:moving', (e) => {
             if (e.target && e.target.type === 'rect') {
@@ -820,5 +833,70 @@ class Editor {
                 this.backgroundImage = this.canvas.backgroundImage;
             }
         });
+    }
+
+    triggerGlowForClasses(classIds) {
+        const rects = this.canvas.getObjects('rect');
+        if (rects.length === 0) return;
+
+        // If classIds is empty or null, default to all rects
+        const targets = (!classIds || classIds.length === 0) 
+            ? rects 
+            : rects.filter(r => classIds.includes(r.classId));
+
+        if (targets.length === 0) return;
+
+        // Save original strokeWidths and shadows
+        const originals = targets.map(r => ({
+            obj: r,
+            strokeWidth: r.strokeWidth,
+            shadow: r.shadow
+        }));
+
+        // Pulse duration of 2 seconds
+        const startTime = Date.now();
+        const duration = 2000;
+
+        const animate = () => {
+            const now = Date.now();
+            const elapsed = now - startTime;
+            if (elapsed >= duration) {
+                // Restore originals perfectly
+                originals.forEach(item => {
+                    item.obj.set({
+                        strokeWidth: item.strokeWidth,
+                        shadow: item.shadow
+                    });
+                });
+                this.canvas.requestRenderAll();
+                return;
+            }
+
+            // Pulsing factor between 0 and 1
+            // 2s duration, pulse 3 times: frequency = 3 * 2 * PI / 2000 = 3 * PI / 1000
+            const pulse = (Math.sin((elapsed * Math.PI * 3) / 1000) + 1) / 2; // ranges from 0 to 1
+
+            targets.forEach(r => {
+                const blurValue = pulse * 20; // max 20 blur
+                const extraStroke = pulse * 3; // max +3px strokeWidth
+                const baseColor = r.stroke || '#ffffff';
+
+                r.set({
+                    strokeWidth: 2 / this.getZoom() + extraStroke,
+                    shadow: new fabric.Shadow({
+                        color: baseColor,
+                        blur: blurValue,
+                        offsetX: 0,
+                        offsetY: 0,
+                        affectStroke: true
+                    })
+                });
+            });
+
+            this.canvas.requestRenderAll();
+            requestAnimationFrame(animate);
+        };
+
+        requestAnimationFrame(animate);
     }
 }

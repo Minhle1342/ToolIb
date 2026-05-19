@@ -18,6 +18,15 @@ class startAPI {
         return await res.json();
     }
 
+    async updateProject(id, data) {
+        const res = await fetch(`/api/projects/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        return await res.json();
+    }
+
     async scanProject(id) {
         const res = await fetch(`/api/projects/scan/${id}`, { method: 'POST' });
         return await res.json();

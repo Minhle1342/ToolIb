@@ -109,6 +109,7 @@ class Workspace {
             projectClasses = ['Error Loading Classes'];
         }
         this.renderClasses();
+        this.renderClassFilters();
     }
 
     renderClasses() {
@@ -123,6 +124,38 @@ class Workspace {
             </div>
         `).join('');
         editor.setClasses(projectClasses);
+    }
+
+    renderClassFilters() {
+        const container = document.getElementById('classFilterContainer');
+        if (!container) return;
+        if (!projectClasses || projectClasses.length === 0) {
+            container.innerHTML = '<span class="text-content-muted italic">No classes available</span>';
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="flex items-center justify-between pb-1 mb-1 border-b border-border/50">
+                <button type="button" class="text-[10px] text-primary hover:underline font-medium" onclick="currentWorkspace.toggleAllClassFilters(true)">Select All</button>
+                <button type="button" class="text-[10px] text-content-muted hover:underline font-medium" onclick="currentWorkspace.toggleAllClassFilters(false)">Clear All</button>
+            </div>
+            <div class="space-y-1">
+                ${projectClasses.map((cls, idx) => `
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-content text-content-muted transition-colors py-0.5">
+                        <input type="checkbox" value="${idx}" class="class-filter-checkbox rounded border-border bg-panel text-primary focus:ring-primary w-3.5 h-3.5" onchange="loadImages(false)">
+                        <div class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${editor.colors[idx % 20]}"></div>
+                        <span class="truncate" title="${cls}">${cls}</span>
+                    </label>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    toggleAllClassFilters(checked) {
+        document.querySelectorAll('.class-filter-checkbox').forEach(cb => {
+            cb.checked = checked;
+        });
+        loadImages(false);
     }
 
     async selectImage(image) {
@@ -170,6 +203,14 @@ class Workspace {
             if (!img) { alert('Failed to load image'); return; }
             editor.loadImage(img);
             editor.loadBoxes(labels);
+
+            // Trigger visual glow effect for active class filters
+            const checkboxes = document.querySelectorAll('.class-filter-checkbox');
+            const selectedClasses = Array.from(checkboxes)
+                .filter(cb => cb.checked)
+                .map(cb => parseInt(cb.value));
+
+            editor.triggerGlowForClasses(selectedClasses);
 
             // Update Inspection View with Image Metadata
             this.updateImageStats(img, labels.length);
@@ -257,6 +298,26 @@ class Workspace {
         };
 
         await API.saveLabel(data);
+
+        // Update local classes cache for filtering and checkmark status
+        if (currentWorkspace.allImages) {
+            const localImg = currentWorkspace.allImages.find(i => i.id === currentImage.id);
+            if (localImg) {
+                const uniqueClasses = Array.from(new Set(boxes.map(b => b.class_id))).sort((a, b) => a - b);
+                localImg.classes = uniqueClasses;
+                localImg.is_labeled = true;
+
+                // Update check icon in DOM without reloading the whole list
+                const el = document.getElementById(`img-${currentImage.id}`);
+                if (el) {
+                    const checkIcon = el.querySelector('.fa-regular.fa-circle');
+                    if (checkIcon) {
+                        checkIcon.className = 'fa-solid fa-check text-secondary';
+                    }
+                }
+            }
+        }
+
         if (!silent) {
             // Flash button or something?
             const btn = document.querySelector('.btn-primary'); // Saved btn
@@ -357,36 +418,57 @@ class Workspace {
 
 const currentWorkspace = new Workspace();
 
-async function loadImages() {
-    const view = document.getElementById('viewFilter').value;
-    const flag = document.getElementById('flagFilter').value;
+async function loadImages(fetchFromServer = true) {
+    if (fetchFromServer || !currentWorkspace.allImages) {
+        const view = document.getElementById('viewFilter').value;
+        const flag = document.getElementById('flagFilter').value;
 
-    const filters = { project_id: PROJECT_ID };
-    if (view) filters.view_id = 999; // TODO: Real user ID? For now "My View" might be a specific ID convention or filtered by cookie. 
-    // SRS says "View cho Minh", "View cho Tuan". 
-    // We haven't implemented User Auth. So "My View" is ambiguous?
-    // Let's assume "My View" means "View ID assigned to me in local storage" or just list all views?
-    // SRS: "Bộ lọc View: [ All Images | My View | Flagged Only ]".
-    // I will mock "My View" for now.
+        const filters = { project_id: PROJECT_ID };
+        if (view) filters.view_id = 999; 
+        if (flag) filters.flag_status = flag;
 
-    if (flag) filters.flag_status = flag;
+        const images = await API.getImages(filters);
+        currentWorkspace.allImages = images;
+    }
 
-    const images = await API.getImages(filters);
+    // Read active class filters
+    const checkboxes = document.querySelectorAll('.class-filter-checkbox');
+    const selectedClasses = Array.from(checkboxes)
+        .filter(cb => cb.checked)
+        .map(cb => parseInt(cb.value));
+
+    // Filter images
+    let filteredImages = currentWorkspace.allImages;
+    if (selectedClasses.length > 0) {
+        filteredImages = currentWorkspace.allImages.filter(img => {
+            const imgClasses = img.classes || [];
+            return imgClasses.some(c => selectedClasses.includes(c));
+        });
+    }
+
     const container = document.getElementById('imageList');
-
-    container.innerHTML = images.map(img => `
-        <div class="px-4 py-3 cursor-pointer border-b border-border flex justify-between items-center text-sm hover:bg-panel transition-colors bg-surface text-content-muted image-item" 
-             id="img-${img.id}" 
-             onclick="currentWorkspace.selectImage({id: ${img.id}, filename: '${img.filename}', flag_status: '${img.flag_status}'})">
-            <span class="truncate pr-2 flex-1" title="${img.filename}">${img.filename}</span>
-            <div class="flex items-center gap-2">
-                ${img.flag_status === 'Flagged' ? '<i class="fa-solid fa-flag text-red-500"></i>' : ''}
-                ${img.is_labeled ? '<i class="fa-solid fa-check text-secondary"></i>' : '<i class="fa-regular fa-circle text-content-muted"></i>'}
+    if (filteredImages.length === 0) {
+        container.innerHTML = '<div class="p-4 text-xs text-content-muted italic text-center">Không có ảnh nào khớp với bộ lọc nhãn</div>';
+    } else {
+        container.innerHTML = filteredImages.map(img => `
+            <div class="px-4 py-3 cursor-pointer border-b border-border flex justify-between items-center text-sm hover:bg-panel transition-colors bg-surface text-content-muted image-item" 
+                 id="img-${img.id}" 
+                 onclick="currentWorkspace.selectImage({id: ${img.id}, filename: '${img.filename}', flag_status: '${img.flag_status}'})">
+                <span class="truncate pr-2 flex-1" title="${img.filename}">${img.filename}</span>
+                <div class="flex items-center gap-2">
+                    ${img.flag_status === 'Flagged' ? '<i class="fa-solid fa-flag text-red-500"></i>' : ''}
+                    ${img.is_labeled ? '<i class="fa-solid fa-check text-secondary"></i>' : '<i class="fa-regular fa-circle text-content-muted"></i>'}
+                </div>
             </div>
-        </div>
-    `).join('');
+        `).join('');
+    }
 
-    currentWorkspace.imageList = images;
+    currentWorkspace.imageList = filteredImages;
+
+    // Trigger canvas glow for the filtered classes if an image is loaded
+    if (typeof editor !== 'undefined' && typeof currentImage !== 'undefined' && currentImage) {
+        editor.triggerGlowForClasses(selectedClasses);
+    }
 }
 
 function selectClass(id, el) {

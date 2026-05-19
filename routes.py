@@ -1,4 +1,6 @@
+# pyrefly: ignore [missing-import]
 from flask import Blueprint, jsonify, request, current_app
+# pyrefly: ignore [missing-import]
 import flask
 from models import db, Project, View, Image
 import os
@@ -39,6 +41,37 @@ def create_project():
             
         return jsonify(new_project.to_dict()), 201
     except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@api_bp.route('/projects/<int:project_id>', methods=['PUT'])
+def update_project(project_id):
+    project = Project.query.get_or_404(project_id)
+    data = request.json
+    try:
+        path_changed = False
+        if 'name' in data:
+            project.name = data['name']
+        if 'classes_path' in data:
+            project.classes_path = data['classes_path']
+        if 'root_path' in data and data['root_path'] != project.root_path:
+            project.root_path = data['root_path']
+            path_changed = True
+            
+        if path_changed:
+            project.images.clear()
+            project.views.clear()
+            
+        db.session.commit()
+        
+        if path_changed:
+            try:
+                utils.scan_and_sync_images(project)
+            except Exception as scan_err:
+                print(f"Error during auto-scanning in update: {scan_err}")
+                
+        return jsonify(project.to_dict())
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 400
 
 @api_bp.route('/projects/<int:project_id>', methods=['DELETE'])
@@ -147,7 +180,12 @@ def get_images():
     
     # Pagination could be added here
     images = query.all()
-    return jsonify([img.to_dict() for img in images])
+    result = []
+    for img in images:
+        d = img.to_dict()
+        d['classes'] = utils.get_image_classes(img)
+        result.append(d)
+    return jsonify(result)
 
 @api_bp.route('/labels/<int:image_id>', methods=['GET'])
 def get_label(image_id):
