@@ -1,0 +1,246 @@
+import os
+import glob
+from models import db, Image, Project
+
+import os
+import glob
+import shutil
+import yaml
+import random
+from models import db, Image, Project, View
+
+ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp'}
+
+def scan_and_sync_images(project):
+    """
+    Scans project.root_path for images.
+    Adds new images to DB.
+    Checks for existing corresponding .txt label files and sets is_labeled=True.
+    Returns number of new images added.
+    """
+    if not os.path.exists(project.root_path):
+        return 0
+
+    existing_images = set(img.filename for img in project.images)
+    new_images_count = 0
+    
+    # Scan folder
+    for root, dirs, files in os.walk(project.root_path):
+        for file in files:
+            ext = os.path.splitext(file)[1].lower()
+            if ext in ALLOWED_EXTENSIONS:
+                if file not in existing_images:
+                    # Check for labels (same directory)
+                    label_file = os.path.join(root, os.path.splitext(file)[0] + '.txt')
+                    is_labeled = os.path.exists(label_file) and os.path.getsize(label_file) > 0
+                    
+                    new_image = Image(
+                        filename=file,
+                        project_id=project.id,
+                        is_labeled=is_labeled
+                    )
+                    db.session.add(new_image)
+                    new_images_count += 1
+    
+    db.session.commit()
+    return new_images_count
+
+def assign_images_to_view(view_id, count, project_id):
+    """
+    Assigns 'count' unassigned images from 'project_id' to 'view_id'.
+    Returns number of assigned images.
+    """
+    try:
+        count = int(count)
+    except ValueError:
+        return 0
+
+    unassigned_images = Image.query.filter_by(project_id=project_id, view_id=None).limit(count).all()
+    
+    for img in unassigned_images:
+        img.view_id = view_id
+    
+    db.session.commit()
+    return len(unassigned_images)
+
+def read_yolo_label(image):
+    """
+    Reads corresponding .txt file for the image.
+    Returns list of parsed label objects.
+    """
+    project = Project.query.get(image.project_id)
+    label_file = os.path.join(project.root_path, os.path.splitext(image.filename)[0] + '.txt')
+    
+    labels = []
+    if os.path.exists(label_file):
+        with open(label_file, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) >= 5:
+                    labels.append({
+                        'class_id': int(parts[0]),
+                        'x': float(parts[1]),
+                        'y': float(parts[2]),
+                        'w': float(parts[3]),
+                        'h': float(parts[4])
+                    })
+    return labels
+
+def save_yolo_label(image, labels):
+    """
+    Writes labels to .txt file.
+    labels: list of dicts: {'class_id', 'x', 'y', 'w', 'h'}
+    """
+    project = Project.query.get(image.project_id)
+    label_file = os.path.join(project.root_path, os.path.splitext(image.filename)[0] + '.txt')
+    
+    with open(label_file, 'w') as f:
+        for label in labels:
+            line = f"{label['class_id']} {label['x']} {label['y']} {label['w']} {label['h']}\n"
+            f.write(line)
+
+def export_dataset(criteria, split_ratio=0.8, format='yolo'):
+    """
+    Exports dataset based on criteria.
+    criteria: { ... }
+    format: 'yolo' | 'split'
+    """
+    # 1. Prepare Export Directory
+    base_export_dir = os.path.abspath("exported_dataset")
+    if os.path.exists(base_export_dir):
+        shutil.rmtree(base_export_dir)
+    
+    # Define paths based on format
+    # structure map: split_name -> { 'images': rel_path, 'labels': rel_path }
+    dirs_map = {}
+    
+    if format == 'split':
+        # Structure: train/images, train/labels
+        dirs_map = {
+            'train': {'images': 'train/images', 'labels': 'train/labels'},
+            'val': {'images': 'val/images', 'labels': 'val/labels'}
+        }
+    else:
+        # Default 'yolo': images/train, labels/train
+        dirs_map = {
+            'train': {'images': 'images/train', 'labels': 'labels/train'},
+            'val': {'images': 'images/val', 'labels': 'labels/val'}
+        }
+
+    # Create directories
+    for split in ['train', 'val']:
+        os.makedirs(os.path.join(base_export_dir, dirs_map[split]['images']))
+        os.makedirs(os.path.join(base_export_dir, dirs_map[split]['labels']))
+
+    all_images = []
+    
+    # 2. Gather Images based on Criteria
+    target_images = []
+    
+    if criteria.get('image_ids'):
+        # Specific images (e.g. from selection)
+        target_images = Image.query.filter(Image.id.in_(criteria['image_ids'])).all()
+        
+    elif criteria.get('view_id'):
+        # All images in a view (labeled or not? User usually wants labeled. Let's filter labeled=True by default)
+        target_images = Image.query.filter_by(view_id=criteria['view_id'], is_labeled=True).all()
+        
+    elif criteria.get('project_ids'):
+        # Multiple projects
+        target_images = Image.query.filter(
+            Image.project_id.in_(criteria['project_ids']), 
+            Image.is_labeled==True
+        ).all()
+        
+    # Filter out flagged images if requested
+    if criteria.get('exclude_flagged', False):
+         target_images = [img for img in target_images if img.flag_status != 'Flagged']
+         
+    if not target_images:
+         return {'status': 'error', 'message': 'No images found matching criteria.'}
+
+    # 3. Process Images
+    # We need projects to resolve paths. Cache them.
+    projects_cache = {}
+    
+    class_names = []
+    # Attempt to get classes from the first project available
+    first_img = target_images[0]
+    p = Project.query.get(first_img.project_id)
+    if p and os.path.exists(p.classes_path):
+        with open(p.classes_path, 'r') as f:
+            class_names = [line.strip() for line in f.readlines()]
+
+    for img in target_images:
+        if img.project_id not in projects_cache:
+            projects_cache[img.project_id] = Project.query.get(img.project_id)
+        
+        project = projects_cache[img.project_id]
+        
+        src_img_path = os.path.join(project.root_path, img.filename)
+        src_label_path = os.path.join(project.root_path, os.path.splitext(img.filename)[0] + '.txt')
+        
+        if os.path.exists(src_img_path) and os.path.exists(src_label_path):
+            all_images.append({
+                'img_path': src_img_path,
+                'label_path': src_label_path,
+                'filename': f"{img.project_id}_{img.filename}" # Prefix to avoid collision
+            })
+
+    if not all_images:
+        return {'status': 'error', 'message': 'No valid labeled images found.'}
+
+    # 4. Filter empty labels? (Optional)
+    
+    # Shuffle and Split
+    random.shuffle(all_images)
+    split_idx = int(len(all_images) * split_ratio)
+    train_set = all_images[:split_idx]
+    val_set = all_images[split_idx:]
+
+    def copy_files(dataset, split_name):
+        paths = dirs_map[split_name]
+        for item in dataset:
+            # Copy Image
+            shutil.copy(item['img_path'], os.path.join(base_export_dir, paths['images'], item['filename']))
+            # Copy Label
+            shutil.copy(item['label_path'], os.path.join(base_export_dir, paths['labels'], os.path.splitext(item['filename'])[0] + '.txt'))
+
+    copy_files(train_set, 'train')
+    copy_files(val_set, 'val')
+
+    # Generate data.yaml
+    # Update paths in yaml to be relative to the yaml file location (base_export_dir)
+    # YOLO expects paths relative to the dataset root or absolute. Relative is safer for portability.
+    
+    # Ensure forward slashes for cross-platform compatibility in YAML
+    train_path = dirs_map['train']['images'].replace(os.sep, '/')
+    val_path = dirs_map['val']['images'].replace(os.sep, '/')
+
+    yaml_content = {
+        'path': '.', # Root relative to data.yaml
+        'train': train_path,
+        'val': val_path,
+        'nc': len(class_names),
+        'names': class_names
+    }
+    
+    yaml_path = os.path.join(base_export_dir, 'data.yaml')
+    with open(yaml_path, 'w') as f:
+        yaml.dump(yaml_content, f, default_flow_style=False, sort_keys=False)
+
+    return {
+        'status': 'success',
+        'export_path': base_export_dir,
+        'stats': {
+            'total': len(all_images),
+            'train': len(train_set),
+            'val': len(val_set)
+        }
+    }
+
+def get_classes(project):
+    if os.path.exists(project.classes_path):
+        with open(project.classes_path, 'r') as f:
+            return [line.strip() for line in f.readlines() if line.strip()]
+    return []

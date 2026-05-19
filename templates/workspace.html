@@ -1,0 +1,433 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex h-full overflow-hidden">
+    <!-- Left Sidebar: Image List -->
+    <div class="flex-none bg-sidebar border-r border-border flex flex-col transition-all duration-300 w-64"
+        id="leftSidebar">
+        <!-- Sidebar Header -->
+        <div class="p-4 border-b border-border space-y-3">
+            <div class="flex justify-between items-center">
+                <h3 class="font-semibold text-content">Images</h3>
+                <button class="text-content-muted hover:text-content-inv" onclick="toggleSidebar('left')"
+                    title="Toggle Image List">
+                    <i class="fa-solid fa-chevron-left sidebar-icon"></i>
+                </button>
+            </div>
+
+            <div class="space-y-2 sidebar-content">
+                <div class="flex gap-2">
+                    <select id="viewFilter" onchange="loadImages()"
+                        class="w-full bg-surface border border-border text-sm rounded px-2 py-1 text-content">
+                        <option value="">All Images</option>
+                        <option value="my_view">My View</option>
+                    </select>
+                </div>
+                <div class="flex gap-2">
+                    <select id="flagFilter" onchange="loadImages()"
+                        class="w-full bg-surface border border-border text-sm rounded px-2 py-1 text-content">
+                        <option value="">All Status</option>
+                        <option value="Flagged">Flagged</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <button
+                        class="bg-panel hover:bg-border text-content text-xs py-1.5 rounded flex items-center justify-center gap-2 border border-border"
+                        onclick="openAssignModal()">
+                        <i class="fa-solid fa-user-plus"></i> Assign
+                    </button>
+                    <button
+                        class="bg-secondary hover:bg-green-600 text-white text-xs py-1.5 rounded flex items-center justify-center gap-2"
+                        onclick="currentWorkspace.openExportModal()">
+                        <i class="fa-solid fa-download"></i> Export
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scrollable List -->
+        <div class="flex-1 overflow-y-auto min-h-0 bg-surface" id="imageList">
+            <!-- Items injected by JS -->
+        </div>
+    </div>
+
+    <!-- Main: Canvas -->
+    <div class="flex-1 flex flex-col min-w-0 bg-app-bg relative">
+        <!-- Toolbar -->
+        <div class="h-14 bg-sidebar border-b border-border flex items-center px-4 gap-2 shadow-sm z-10">
+            <button class="p-2 text-content-muted hover:text-primary rounded hover:bg-panel transition-colors"
+                onclick="editor.setMode('draw')" title="Draw (D)" id="btnDraw">
+                <i class="fa-solid fa-pen text-lg"></i>
+            </button>
+            <button class="p-2 text-content-muted hover:text-primary rounded hover:bg-panel transition-colors"
+                onclick="editor.setMode('select')" title="Select/Edit (V)" id="btnSelect">
+                <i class="fa-solid fa-mouse-pointer text-lg"></i>
+            </button>
+
+            <div class="w-px h-6 bg-border mx-2"></div>
+
+            <button class="p-2 text-content-muted hover:text-accent rounded hover:bg-panel transition-colors"
+                onclick="currentWorkspace.toggleLockBox()" title="Lock/Unlock Box (L)" id="btnLock">
+                <i class="fa-solid fa-lock-open text-lg"></i>
+            </button>
+            <button class="p-2 text-content-muted hover:text-secondary rounded hover:bg-panel transition-colors"
+                onclick="currentWorkspace.toggleImageVisibility()" title="Hide/Show Image (H)" id="btnHideImage">
+                <i class="fa-regular fa-image text-lg"></i>
+            </button>
+
+            <button class="p-2 text-content-muted hover:text-purple-500 rounded hover:bg-panel transition-colors"
+                onclick="currentWorkspace.autoLabel()" title="Auto Label (Magic Wand)">
+                <i class="fa-solid fa-wand-magic-sparkles text-lg"></i>
+            </button>
+
+            <div class="w-px h-6 bg-border mx-2"></div>
+
+            <button class="p-2 text-content-muted hover:text-content-inv rounded hover:bg-panel"
+                onclick="editor.zoomIn()">
+                <i class="fa-solid fa-magnifying-glass-plus"></i>
+            </button>
+            <button class="p-2 text-content-muted hover:text-content-inv rounded hover:bg-panel"
+                onclick="editor.zoomOut()">
+                <i class="fa-solid fa-magnifying-glass-minus"></i>
+            </button>
+            <button class="p-2 text-content-muted hover:text-content-inv rounded hover:bg-panel"
+                onclick="editor.resetView()">
+                <i class="fa-solid fa-compress"></i>
+            </button>
+
+            <div class="w-px h-6 bg-border mx-2"></div>
+
+            <span id="currentFileName" class="text-sm text-content-muted font-mono truncate max-w-xs">No Image</span>
+
+            <div class="w-px h-6 bg-border mx-2 ml-auto"></div>
+
+            <button class="p-2 text-content-muted hover:text-red-500 rounded hover:bg-panel"
+                onclick="currentWorkspace.toggleFlag()" id="btnFlag" title="Flag Image (F)">
+                <i class="fa-regular fa-flag text-lg"></i>
+            </button>
+            <button class="bg-primary hover:bg-blue-500 text-content-inv text-sm font-medium px-4 py-1.5 rounded ml-2"
+                onclick="currentWorkspace.save()">Saved</button>
+        </div>
+
+        <!-- Canvas -->
+        <div class="flex-1 overflow-hidden relative flex justify-center items-center bg-surface" id="canvasWrapper">
+            <canvas id="c"></canvas>
+        </div>
+    </div>
+
+    <!-- Right Sidebar: Inspection & Classes -->
+    <div class="flex-none bg-sidebar border-l border-border flex flex-col transition-all duration-300 w-72"
+        id="rightSidebar">
+        <!-- Inspection Panel (Fixed Top) -->
+        <div
+            class="p-4 border-b border-border bg-sidebar flex-shrink-0 flex flex-col max-h-[50%] overflow-y-auto sidebar-content">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="font-semibold text-sm text-content-muted">Inspection</h3>
+            </div>
+
+            <div
+                class="w-full aspect-square bg-surface border border-border rounded overflow-hidden flex justify-center items-center relative mb-3 max-h-48">
+                <canvas id="magnifierCanvas" class="w-full h-full object-contain hidden"></canvas>
+                <div class="flex flex-col items-center gap-2 text-content-muted text-xs" id="magPlaceholder">
+                    <i class="fa-solid fa-magnifying-glass text-2xl"></i>
+                    <span>Select a box to zoom</span>
+                </div>
+            </div>
+
+            <div id="selectionInfo" class="space-y-2 text-sm text-content-muted">
+                Nothing selected
+            </div>
+
+            <button class="w-full mt-3 bg-red-900/50 hover:bg-red-900 text-red-200 text-xs py-1.5 rounded hidden"
+                id="btnDeleteBox" onclick="editor.deleteSelected()">
+                Delete Box (Del/Q)
+            </button>
+        </div>
+
+        <!-- Class List Header -->
+        <div class="p-4 border-b border-border flex justify-between items-center bg-sidebar flex-shrink-0">
+            <h3 class="font-semibold text-content sidebar-content">Classes</h3>
+            <div class="flex items-center gap-2 flex-1 justify-end">
+                <input type="text" id="classSearch" placeholder="Search..."
+                    class="bg-surface border border-border text-content text-xs rounded px-2 py-1 w-24 focus:w-full transition-all sidebar-content">
+                <button class="text-gray-400 hover:text-white" onclick="toggleSidebar('right')"
+                    title="Toggle Class List">
+                    <i class="fa-solid fa-chevron-right sidebar-icon"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Class List (Fills remaining) -->
+        <div class="flex-1 overflow-y-auto min-h-0 bg-surface" id="classList">
+            <!-- Classes injected by JS -->
+        </div>
+    </div>
+</div>
+
+<!-- Assign Modal -->
+<div class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center" id="assignModal">
+    <div class="bg-panel rounded-lg shadow-xl w-96 p-6 border border-border">
+        <h2 class="text-xl font-bold text-content mb-4">Assign Images</h2>
+        <form id="assignForm" class="space-y-4">
+            <input type="hidden" name="project_id" value="{{ project_id }}">
+            <div>
+                <label class="block text-xs font-medium text-content-muted mb-1">View Name</label>
+                <input type="text" name="view_name"
+                    class="w-full bg-surface border border-border rounded px-3 py-2 text-content placeholder-content-muted focus:outline-none focus:border-primary"
+                    placeholder="e.g. Team Minh" required>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-content-muted mb-1">Number of Images</label>
+                <input type="number" name="count"
+                    class="w-full bg-surface border border-border rounded px-3 py-2 text-content focus:outline-none focus:border-primary"
+                    value="100" required>
+            </div>
+            <div class="flex justify-end gap-2 mt-6">
+                <button type="button"
+                    class="px-4 py-2 text-sm text-content-muted hover:text-content hover:bg-surface rounded"
+                    onclick="closeModal('assignModal')">Cancel</button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm bg-primary hover:bg-blue-600 text-content-inv rounded">Assign</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Send project_id to JS -->
+<script>
+    const PROJECT_ID = "{{ project_id }}";
+</script>
+<script src="{{ url_for('static', filename='js/fabric.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/editor.js') }}"></script>
+<script src="{{ url_for('static', filename='js/workspace.js') }}"></script>
+
+<script>
+    // Update JS injection logic for Tailwind Styles
+    // Since workspace.js injects HTML strings, we need to update workspace.js too!
+    // But first let's handle the sidebar toggle logic here which uses classes.
+
+    function toggleSidebar(side) {
+        const sidebar = document.getElementById(side === 'left' ? 'leftSidebar' : 'rightSidebar');
+        const isCollapsed = sidebar.classList.contains('w-12'); // Collapsed width
+        const fullWidth = side === 'left' ? 'w-64' : 'w-72';
+
+        if (isCollapsed) {
+            // Expand
+            sidebar.classList.remove('w-12');
+            sidebar.classList.add(fullWidth);
+
+            // Show content
+            const contents = sidebar.querySelectorAll('.sidebar-content');
+            contents.forEach(el => el.style.display = 'block');
+            if (side === 'right') sidebar.querySelectorAll('.sidebar-content').forEach(el => el.style.display = 'flex'); // Flex fix
+
+            // Icon rotate
+            const icon = sidebar.querySelector('.sidebar-icon');
+            icon.className = side === 'left' ? 'fa-solid fa-chevron-left sidebar-icon' : 'fa-solid fa-chevron-right sidebar-icon';
+
+        } else {
+            // Collapse
+            sidebar.classList.remove(fullWidth);
+            sidebar.classList.add('w-12');
+
+            // Hide content
+            const contents = sidebar.querySelectorAll('.sidebar-content');
+            contents.forEach(el => el.style.display = 'none');
+
+            // Icon rotate
+            const icon = sidebar.querySelector('.sidebar-icon');
+            icon.className = side === 'left' ? 'fa-solid fa-chevron-right sidebar-icon' : 'fa-solid fa-chevron-left sidebar-icon';
+        }
+
+        // Resize canvas after transition
+        setTimeout(() => {
+            if (typeof editor !== 'undefined') editor.resizeCanvas();
+        }, 300);
+    }
+
+    function closeModal(id) {
+        document.getElementById(id).classList.add('hidden');
+    }
+
+    function openAssignModal() {
+        document.getElementById('assignModal').classList.remove('hidden');
+    }
+
+    function updateExportPreview() {
+        const fmt = document.getElementById('exportFormat').value;
+        const el = document.getElementById('exportPreview');
+        if (fmt === 'yolo') {
+            el.innerHTML = 'root/<br>&nbsp;&nbsp;├── images/train<br>&nbsp;&nbsp;├── labels/train<br>&nbsp;&nbsp;└── data.yaml';
+        } else {
+            el.innerHTML = 'root/<br>&nbsp;&nbsp;├── train/images<br>&nbsp;&nbsp;├── train/labels<br>&nbsp;&nbsp;└── data.yaml';
+        }
+    }
+</script>
+
+<!-- Shortcuts Modal -->
+<div id="shortcutsModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center"
+    onclick="if(event.target === this) this.classList.add('hidden')">
+    <div
+        class="bg-panel border border-border rounded-xl shadow-2xl w-[800px] max-w-[90vw] max-h-[85vh] overflow-hidden flex flex-col">
+        <div class="px-6 py-4 border-b border-border flex justify-between items-center bg-surface">
+            <h2 class="text-xl font-bold text-content flex items-center gap-3">
+                <i class="fa-solid fa-keyboard text-primary"></i> Keyboard Shortcuts
+            </h2>
+            <button onclick="document.getElementById('shortcutsModal').classList.add('hidden')"
+                class="text-content-muted hover:text-white transition-colors">
+                <i class="fa-solid fa-times text-lg"></i>
+            </button>
+        </div>
+
+        <div class="p-6 overflow-y-auto grid grid-cols-2 gap-x-8 gap-y-6">
+            <!-- Section: Tools -->
+            <div>
+                <h3 class="text-primary font-bold mb-3 text-sm uppercase tracking-wider border-b border-border/50 pb-1">
+                    Tools & Modes</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between"><span class="text-content-muted">Select Tool</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">S</kbd>
+                    </div>
+                    <div class="flex justify-between"><span class="text-content-muted">Draw Tool</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">D</kbd>
+                    </div>
+                    <div class="flex justify-between"><span class="text-content-muted">Pan (Hold)</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">Space</kbd>
+                        or <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">Alt</kbd>
+                    </div>
+                    <div class="flex justify-between"><span class="text-content-muted">Zoom</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">Ctrl
+                            + Scroll</kbd></div>
+                </div>
+            </div>
+
+            <!-- Section: Box Management -->
+            <div>
+                <h3 class="text-primary font-bold mb-3 text-sm uppercase tracking-wider border-b border-border/50 pb-1">
+                    Box Management</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between"><span class="text-content-muted">Sticky Move</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">A</kbd>
+                    </div>
+                    <div class="flex justify-between"><span class="text-content-muted">Duplicate (Sticky)</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">Ctrl
+                            + D</kbd></div>
+                    <div class="flex justify-between"><span class="text-content-muted">Delete Box</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">Del</kbd>
+                        / <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">Q</kbd>
+                    </div>
+                    <div class="flex justify-between"><span class="text-content-muted">Undo</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">Ctrl
+                            + Z</kbd></div>
+                    <div class="flex justify-between"><span class="text-content-muted">Redo</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">Ctrl
+                            + Y</kbd></div>
+                </div>
+            </div>
+
+            <!-- Section: Attributes -->
+            <div>
+                <h3 class="text-primary font-bold mb-3 text-sm uppercase tracking-wider border-b border-border/50 pb-1">
+                    Attributes & View</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between"><span class="text-content-muted">Select Class</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">0-9</kbd>
+                    </div>
+                    <div class="flex justify-between"><span class="text-content-muted">Lock/Unlock Box</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">L</kbd>
+                    </div>
+                    <div class="flex justify-between"><span class="text-content-muted">Isolate Mode</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">I</kbd>
+                    </div>
+                    <div class="flex justify-between"><span class="text-content-muted">Toggle Image</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">H</kbd>
+                    </div>
+                    <div class="flex justify-between"><span class="text-content-muted">Flag Image</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">F</kbd>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section: Selection -->
+            <div>
+                <h3 class="text-primary font-bold mb-3 text-sm uppercase tracking-wider border-b border-border/50 pb-1">
+                    Selection & Navigation</h3>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between"><span class="text-content-muted">Multi-Select</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">Ctrl
+                            + Click</kbd></div>
+                    <div class="flex justify-between"><span class="text-content-muted">Next Image</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">Right
+                            Arrow</kbd></div>
+                    <div class="flex justify-between"><span class="text-content-muted">Prev Image</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">Left
+                            Arrow</kbd></div>
+                    <div class="flex justify-between"><span class="text-content-muted">Show Shortcuts</span> <kbd
+                            class="bg-surface px-2 py-0.5 rounded border border-border text-content font-mono text-xs">`
+                            / ~</kbd></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-4 bg-surface border-t border-border text-center text-xs text-content-muted">
+            Press <kbd class="bg-panel px-1.5 py-0.5 rounded border border-border text-content font-mono">Esc</kbd> or
+            click outside to close
+        </div>
+    </div>
+</div>
+
+<!-- Export Modal -->
+<div class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4" id="exportModal">
+    <div class="bg-panel rounded-lg shadow-xl w-full max-w-sm p-6 border border-border">
+        <h2 class="text-xl font-bold text-content mb-4">Export Dataset</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-content-muted mb-2">Scope</label>
+                <select id="exportScope" class="w-full bg-surface border border-border rounded px-3 py-2 text-content">
+                    <option value="project">Entire Project</option>
+                    <option value="view">Current View (Assigned)</option>
+                    <option value="current">Current Image Only</option>
+                </select>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <input type="checkbox" id="exportExcludeFlagged"
+                    class="rounded bg-surface border-border text-primary focus:ring-primary" checked>
+                <label for="exportExcludeFlagged" class="text-sm text-content-muted">Exclude Flagged Images</label>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <label class="text-sm text-content-muted">Split Ratio (Train):</label>
+                <input type="number" id="exportSplit" value="0.8" step="0.1" min="0.1" max="1.0"
+                    class="w-16 bg-surface border border-border rounded px-2 py-1 text-content text-sm">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-content-muted mb-2">Structure Format</label>
+                <select id="exportFormat" onchange="updateExportPreview()"
+                    class="w-full bg-surface border border-border rounded px-3 py-2 text-content">
+                    <option value="yolo">YOLO V5/V8 (Recommended)</option>
+                    <option value="split">Split Folders (Train/Val)</option>
+                </select>
+                <div class="mt-2 p-2 bg-sidebar rounded border border-border text-xs font-mono text-content-muted"
+                    id="exportPreview">
+                    images/train<br>
+                    labels/train
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-3 mt-6">
+                <button type="button"
+                    class="px-3 py-1.5 text-sm text-content-muted hover:text-content hover:bg-surface rounded transition-colors"
+                    onclick="closeModal('exportModal')">Cancel</button>
+                <button type="button" onclick="currentWorkspace.executeExport()"
+                    class="px-3 py-1.5 text-sm bg-secondary hover:bg-green-600 text-content-inv rounded transition-colors">
+                    <i class="fa-solid fa-file-export"></i> Export
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

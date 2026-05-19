@@ -1,0 +1,28 @@
+# Models
+models/*.onnx
+models/*.pt
+models/*.pb
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env
+
+# Database
+instance/
+*.sqlite3
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Exported data
+exported_dataset/
+
+# Dataset files
+Rack_Data/
