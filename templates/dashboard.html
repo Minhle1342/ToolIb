@@ -29,15 +29,33 @@
             </div>
             <div class="space-y-1">
                 <label class="block text-sm font-medium text-content-muted">Images Folder Path (Absolute)</label>
-                <input type="text" name="root_path"
-                    class="w-full bg-surface border border-border rounded px-3 py-2 text-content focus:outline-none focus:border-primary transition-colors"
-                    required placeholder="C:\Path\To\Images">
+                <div class="space-y-2">
+                    <input type="text" name="root_path" id="root_path_input"
+                        class="w-full bg-surface border border-border rounded px-3 py-2 text-content focus:outline-none focus:border-primary transition-colors"
+                        required placeholder="C:\Path\To\Images">
+                    <div id="images_dropzone" class="border-2 border-dashed border-border rounded-lg p-5 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all bg-surface/30 group">
+                        <i class="fa-solid fa-cloud-arrow-up text-primary text-3xl mb-2 group-hover:scale-110 transition-transform"></i>
+                        <p class="text-xs text-content font-medium">Kéo & thả thư mục ảnh vào đây, hoặc click để chọn thư mục</p>
+                        <p class="text-[10px] text-content-muted mt-1 font-normal">Hỗ trợ JPG, PNG, BMP, JPEG (và file nhãn .txt tương ứng nếu có)</p>
+                        <input type="file" id="images_file_input" class="hidden" webkitdirectory directory multiple>
+                        <div id="images_upload_status" class="hidden text-xs mt-3 font-semibold px-3 py-1.5 rounded bg-surface/50 border border-border inline-block"></div>
+                    </div>
+                </div>
             </div>
             <div class="space-y-1">
                 <label class="block text-sm font-medium text-content-muted">Classes File Path (Absolute)</label>
-                <input type="text" name="classes_path"
-                    class="w-full bg-surface border border-border rounded px-3 py-2 text-content focus:outline-none focus:border-primary transition-colors"
-                    required placeholder="C:\Path\To\classes.txt">
+                <div class="space-y-2">
+                    <input type="text" name="classes_path" id="classes_path_input"
+                        class="w-full bg-surface border border-border rounded px-3 py-2 text-content focus:outline-none focus:border-primary transition-colors"
+                        required placeholder="C:\Path\To\classes.txt">
+                    <div id="classes_dropzone" class="border-2 border-dashed border-border rounded-lg p-5 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all bg-surface/30 group">
+                        <i class="fa-solid fa-file-lines text-primary text-3xl mb-2 group-hover:scale-110 transition-transform"></i>
+                        <p class="text-xs text-content font-medium">Kéo & thả file classes.txt vào đây, hoặc click để chọn file</p>
+                        <p class="text-[10px] text-content-muted mt-1 font-normal">Tệp văn bản chứa danh sách các nhãn phân loại (mỗi dòng một lớp)</p>
+                        <input type="file" id="classes_file_input" class="hidden" accept=".txt">
+                        <div id="classes_upload_status" class="hidden text-xs mt-3 font-semibold px-3 py-1.5 rounded bg-surface/50 border border-border inline-block"></div>
+                    </div>
+                </div>
             </div>
             <div class="flex justify-end gap-3 mt-8">
                 <button type="button"
@@ -114,8 +132,127 @@
             closeModal('createProjectModal');
             loadProjects();
             e.target.reset();
+            document.getElementById('images_upload_status').classList.add('hidden');
+            document.getElementById('classes_upload_status').classList.add('hidden');
         }
     });
+
+    // Helper for drag & drop file upload and directory creation
+    function setupDropzone(dropzoneId, inputElId, fileInputId, statusId, isDirectory) {
+        const dropzone = document.getElementById(dropzoneId);
+        const fileInput = document.getElementById(fileInputId);
+        const inputEl = document.getElementById(inputElId);
+        const statusEl = document.getElementById(statusId);
+
+        // Prevent default drag behaviors
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, e => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
+        });
+
+        // Toggle dropzone style on dragover
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropzone.addEventListener(eventName, () => {
+                dropzone.classList.remove('border-border');
+                dropzone.classList.add('border-primary', 'bg-primary/10');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, () => {
+                dropzone.classList.remove('border-primary', 'bg-primary/10');
+                dropzone.classList.add('border-border');
+            }, false);
+        });
+
+        // Trigger file input click on dropzone click
+        dropzone.addEventListener('click', () => fileInput.click());
+
+        // Handle drop event
+        dropzone.addEventListener('drop', e => {
+            const files = e.dataTransfer.files;
+            handleFiles(files);
+        });
+
+        // Handle file select event
+        fileInput.addEventListener('change', e => {
+            handleFiles(e.target.files);
+        });
+
+        async function handleFiles(files) {
+            if (!files || files.length === 0) return;
+
+            const nameInput = document.querySelector('#createProjectForm input[name="name"]');
+            if (!nameInput.value.trim()) {
+                alert('Vui lòng nhập "Project Name" ở đầu form trước khi kéo thả tải lên để hệ thống phân loại thư mục lưu trữ!');
+                nameInput.focus();
+                return;
+            }
+
+            const projectName = nameInput.value.trim();
+
+            statusEl.classList.remove('hidden', 'text-red-500', 'text-green-500');
+            statusEl.classList.add('text-primary');
+            statusEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Đang tải lên ${files.length} tệp...`;
+
+            const formData = new FormData();
+            formData.append('project_name', projectName);
+
+            if (isDirectory) {
+                for (let i = 0; i < files.length; i++) {
+                    formData.append('files', files[i]);
+                }
+
+                try {
+                    const response = await fetch('/api/upload-folder', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        inputEl.value = result.absolute_path;
+                        statusEl.classList.remove('text-primary');
+                        statusEl.classList.add('text-green-500');
+                        statusEl.innerHTML = `<i class="fa-solid fa-circle-check mr-1"></i> Đã tải lên thư mục ảnh! (${result.count} file)`;
+                    } else {
+                        throw new Error(result.error || 'Tải lên thất bại');
+                    }
+                } catch (err) {
+                    statusEl.classList.remove('text-primary');
+                    statusEl.classList.add('text-red-500');
+                    statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark mr-1"></i> Lỗi: ${err.message}`;
+                }
+            } else {
+                formData.append('file', files[0]);
+
+                try {
+                    const response = await fetch('/api/upload-file', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        inputEl.value = result.absolute_path;
+                        statusEl.classList.remove('text-primary');
+                        statusEl.classList.add('text-green-500');
+                        statusEl.innerHTML = `<i class="fa-solid fa-circle-check mr-1"></i> Đã tải lên file classes.txt!`;
+                    } else {
+                        throw new Error(result.error || 'Tải lên thất bại');
+                    }
+                } catch (err) {
+                    statusEl.classList.remove('text-primary');
+                    statusEl.classList.add('text-red-500');
+                    statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark mr-1"></i> Lỗi: ${err.message}`;
+                }
+            }
+        }
+    }
+
+    // Set up drag and drop zones
+    setupDropzone('images_dropzone', 'root_path_input', 'images_file_input', 'images_upload_status', true);
+    setupDropzone('classes_dropzone', 'classes_path_input', 'classes_file_input', 'classes_upload_status', false);
 
     // Initial Load
     loadProjects();

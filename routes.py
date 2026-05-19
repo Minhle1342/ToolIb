@@ -58,6 +58,61 @@ def scan_project(project_id):
     added_count = utils.scan_and_sync_images(project)
     return jsonify({'message': f'Scanned and synced. Added {added_count} new images.'})
 
+# --- Uploads for Drag-and-Drop Project Creation ---
+ALLOWED_UPLOAD_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.txt', '.JPG', '.JPEG', '.PNG', '.BMP'}
+
+@api_bp.route('/upload-folder', methods=['POST'])
+def upload_folder():
+    project_name = request.form.get('project_name', 'default_project')
+    # Clean project name for a safe folder name
+    safe_project_name = "".join([c for c in project_name if c.isalnum() or c in (' ', '_')]).strip()
+    safe_project_name = safe_project_name.replace(' ', '_')
+    if not safe_project_name:
+        safe_project_name = 'default_project'
+        
+    upload_dir = os.path.abspath(os.path.join('uploads', safe_project_name, 'images'))
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    files = request.files.getlist('files')
+    saved_count = 0
+    for file in files:
+        if file.filename:
+            basename = os.path.basename(file.filename)
+            ext = os.path.splitext(basename)[1].lower()
+            if ext in {'.jpg', '.jpeg', '.png', '.bmp', '.txt'}:
+                dest_path = os.path.join(upload_dir, basename)
+                file.save(dest_path)
+                saved_count += 1
+                
+    return jsonify({
+        'status': 'success',
+        'absolute_path': upload_dir,
+        'count': saved_count
+    })
+
+@api_bp.route('/upload-file', methods=['POST'])
+def upload_file():
+    project_name = request.form.get('project_name', 'default_project')
+    safe_project_name = "".join([c for c in project_name if c.isalnum() or c in (' ', '_')]).strip()
+    safe_project_name = safe_project_name.replace(' ', '_')
+    if not safe_project_name:
+        safe_project_name = 'default_project'
+        
+    upload_dir = os.path.abspath(os.path.join('uploads', safe_project_name))
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    file = request.files.get('file')
+    if file and file.filename:
+        dest_path = os.path.join(upload_dir, 'classes.txt')
+        file.save(dest_path)
+        return jsonify({
+            'status': 'success',
+            'absolute_path': dest_path
+        })
+        
+    return jsonify({'error': 'No file uploaded'}), 400
+
+
 # --- Views ---
 @api_bp.route('/views', methods=['POST'])
 def create_view():
